@@ -690,6 +690,74 @@ export default function SEOAgent() {
 
   const [clusterFilter, setClusterFilter] = useState("all");
 
+  // ── Target Keywords Management (persisted to backend) ──
+  const [targetKeywords, setTargetKeywords] = useState({});
+  const [newKeyword, setNewKeyword] = useState("");
+  const [newPriority, setNewPriority] = useState("primary");
+  const [newCluster, setNewCluster] = useState("core");
+  const [targetsLoading, setTargetsLoading] = useState(false);
+
+  // Load all target keywords on mount
+  useEffect(() => {
+    fetch(`${API_BASE}/api/target-keywords`)
+      .then(r => r.json())
+      .then(d => { if (d.targets) setTargetKeywords(d.targets); })
+      .catch(() => {});
+  }, []);
+
+  const addTargetKeyword = async () => {
+    if (!newKeyword.trim()) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/target-keywords/${activeSite}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ keyword: newKeyword.trim(), priority: newPriority, cluster: newCluster }),
+      });
+      const data = await res.json();
+      if (data.keywords) {
+        setTargetKeywords(prev => ({ ...prev, [activeSite]: data.keywords.map(k => ({ keyword: k.keyword, priority: k.priority, cluster: k.cluster })) }));
+      }
+      setNewKeyword("");
+    } catch (err) {
+      // Fallback to local state if backend unreachable
+      setTargetKeywords(prev => ({
+        ...prev,
+        [activeSite]: [...(prev[activeSite] || []), { keyword: newKeyword.trim().toLowerCase(), priority: newPriority, cluster: newCluster }],
+      }));
+      setNewKeyword("");
+    }
+  };
+
+  const removeTargetKeyword = async (keyword) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/target-keywords/${activeSite}/${encodeURIComponent(keyword)}`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      if (data.keywords) {
+        setTargetKeywords(prev => ({ ...prev, [activeSite]: data.keywords.map(k => ({ keyword: k.keyword, priority: k.priority, cluster: k.cluster })) }));
+      }
+    } catch (err) {
+      setTargetKeywords(prev => ({
+        ...prev,
+        [activeSite]: (prev[activeSite] || []).filter(k => k.keyword !== keyword),
+      }));
+    }
+  };
+
+  // Match target keywords against live GSC data
+  const getTargetKeywordStatus = (targetKw) => {
+    if (!liveKeywords) return { status: "no_data", position: null, clicks: 0, impressions: 0, ctr: 0 };
+    const match = gscKeywords.find(gk =>
+      gk.keyword.toLowerCase().includes(targetKw.toLowerCase()) ||
+      targetKw.toLowerCase().includes(gk.keyword.toLowerCase())
+    );
+    if (match) {
+      return { status: "ranking", position: Math.round(match.position), clicks: match.clicks, impressions: match.impressions, ctr: match.ctr, change: match.change || 0 };
+    }
+    return { status: "not_ranking", position: null, clicks: 0, impressions: 0, ctr: 0 };
+  };
+
   const renderKeywords = () => {
     const strategy = KEYWORD_STRATEGIES[activeSite];
     const siteKws = MOCK_KEYWORDS.filter(kw => kw.site === activeSite);
@@ -795,6 +863,136 @@ export default function SEOAgent() {
           </div>
         </Card>
       )}
+
+      {/* ── Target Keywords Manager ── */}
+      <Card style={{ borderColor: COLORS.purple + "44" }}>
+        <SectionTitle icon="search">Target Keywords</SectionTitle>
+        <p style={{ color: COLORS.textMuted, fontFamily: FONT_SANS, fontSize: 13, margin: "0 0 14px", lineHeight: 1.5 }}>
+          Add keywords you want to rank for. The agent tracks them against your live Search Console data.
+        </p>
+
+        {/* Add keyword form */}
+        <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+          <input
+            type="text" value={newKeyword} onChange={e => setNewKeyword(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && addTargetKeyword()}
+            placeholder="Enter target keyword..."
+            style={{
+              flex: 1, minWidth: 200, padding: "8px 14px", borderRadius: 8, fontSize: 13,
+              background: COLORS.bg, border: `1px solid ${COLORS.border}`, color: COLORS.text,
+              fontFamily: FONT_SANS, outline: "none",
+            }}
+          />
+          <select value={newPriority} onChange={e => setNewPriority(e.target.value)} style={{
+            padding: "8px 12px", borderRadius: 8, fontSize: 12, background: COLORS.bg,
+            border: `1px solid ${COLORS.border}`, color: COLORS.text, fontFamily: FONT,
+          }}>
+            <option value="primary">Primary</option>
+            <option value="secondary">Secondary</option>
+            <option value="tertiary">Tertiary</option>
+          </select>
+          <select value={newCluster} onChange={e => setNewCluster(e.target.value)} style={{
+            padding: "8px 12px", borderRadius: 8, fontSize: 12, background: COLORS.bg,
+            border: `1px solid ${COLORS.border}`, color: COLORS.text, fontFamily: FONT,
+          }}>
+            <option value="core">Core</option>
+            <option value="service">Service</option>
+            <option value="geo">Geo-Targeted</option>
+            <option value="content">Content</option>
+          </select>
+          <Btn variant="primary" onClick={addTargetKeyword} small>
+            + Add Keyword
+          </Btn>
+        </div>
+
+        {/* Target keywords table with GSC comparison */}
+        {(targetKeywords[activeSite] || []).length === 0 ? (
+          <div style={{ textAlign: "center", padding: 20, color: COLORS.textDim, fontFamily: FONT_SANS, fontSize: 13 }}>
+            No target keywords yet. Add keywords above to start tracking.
+          </div>
+        ) : (
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, fontFamily: FONT_SANS }}>
+            <thead>
+              <tr style={{ borderBottom: `1px solid ${COLORS.border}` }}>
+                {["Target Keyword", "Priority", "Cluster", "GSC Status", "Position", "Clicks", "Impressions", ""].map(h => (
+                  <th key={h} style={{ padding: "8px 10px", textAlign: "left", color: COLORS.textMuted, fontSize: 10, fontFamily: FONT, textTransform: "uppercase", letterSpacing: "0.06em" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {(targetKeywords[activeSite] || []).map((tk, i) => {
+                const gscStatus = getTargetKeywordStatus(tk.keyword);
+                const statusColors = {
+                  ranking: { color: COLORS.success, bg: COLORS.successDim, label: "Ranking" },
+                  not_ranking: { color: COLORS.danger, bg: COLORS.dangerDim, label: "Not found" },
+                  no_data: { color: COLORS.textMuted, bg: COLORS.surfaceAlt, label: "No GSC data" },
+                };
+                const sc = statusColors[gscStatus.status];
+                return (
+                  <tr key={i} style={{ borderBottom: `1px solid ${COLORS.border}22` }}>
+                    <td style={{ padding: "10px 10px", color: COLORS.text, fontWeight: 600 }}>{tk.keyword}</td>
+                    <td style={{ padding: "10px 10px" }}>
+                      <Badge color={tk.priority === "primary" ? COLORS.danger : tk.priority === "secondary" ? COLORS.warning : COLORS.textMuted}
+                        bg={tk.priority === "primary" ? COLORS.dangerDim : tk.priority === "secondary" ? COLORS.warningDim : COLORS.surfaceAlt}>
+                        {tk.priority}
+                      </Badge>
+                    </td>
+                    <td style={{ padding: "10px 10px" }}>
+                      <Badge color={COLORS.purple} bg={COLORS.purpleDim}>{tk.cluster}</Badge>
+                    </td>
+                    <td style={{ padding: "10px 10px" }}>
+                      <Badge color={sc.color} bg={sc.bg}>{sc.label}</Badge>
+                    </td>
+                    <td style={{ padding: "10px 10px" }}>
+                      {gscStatus.position ? (
+                        <span style={{
+                          display: "inline-flex", alignItems: "center", justifyContent: "center",
+                          width: 32, height: 22, borderRadius: 6, fontFamily: FONT, fontWeight: 700, fontSize: 11,
+                          background: gscStatus.position <= 10 ? COLORS.successDim : gscStatus.position <= 20 ? COLORS.warningDim : COLORS.surfaceAlt,
+                          color: gscStatus.position <= 10 ? COLORS.success : gscStatus.position <= 20 ? COLORS.warning : COLORS.textMuted,
+                        }}>{gscStatus.position}</span>
+                      ) : <span style={{ color: COLORS.textDim, fontFamily: FONT, fontSize: 12 }}>—</span>}
+                    </td>
+                    <td style={{ padding: "10px 10px", color: gscStatus.clicks > 0 ? COLORS.accent : COLORS.textDim, fontFamily: FONT, fontSize: 12 }}>
+                      {gscStatus.clicks > 0 ? gscStatus.clicks.toLocaleString() : "—"}
+                    </td>
+                    <td style={{ padding: "10px 10px", color: COLORS.textMuted, fontFamily: FONT, fontSize: 12 }}>
+                      {gscStatus.impressions > 0 ? gscStatus.impressions.toLocaleString() : "—"}
+                    </td>
+                    <td style={{ padding: "10px 10px" }}>
+                      <div onClick={() => removeTargetKeyword(tk.keyword)} style={{ cursor: "pointer", opacity: 0.5, transition: "opacity 0.2s" }}
+                        onMouseOver={e => e.currentTarget.style.opacity = 1} onMouseOut={e => e.currentTarget.style.opacity = 0.5}>
+                        <Icon name="x" size={14} color={COLORS.danger}/>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+
+        {/* Summary stats */}
+        {(targetKeywords[activeSite] || []).length > 0 && (
+          <div style={{ display: "flex", gap: 12, marginTop: 14 }}>
+            {[
+              { label: "Total targets", value: (targetKeywords[activeSite] || []).length, color: COLORS.purple },
+              { label: "Ranking", value: (targetKeywords[activeSite] || []).filter(tk => getTargetKeywordStatus(tk.keyword).status === "ranking").length, color: COLORS.success },
+              { label: "Not found", value: (targetKeywords[activeSite] || []).filter(tk => getTargetKeywordStatus(tk.keyword).status === "not_ranking").length, color: COLORS.danger },
+              { label: "Avg position", value: (() => {
+                const ranked = (targetKeywords[activeSite] || []).map(tk => getTargetKeywordStatus(tk.keyword)).filter(s => s.position);
+                return ranked.length > 0 ? Math.round(ranked.reduce((a, b) => a + b.position, 0) / ranked.length) : "—";
+              })(), color: COLORS.accent },
+            ].map((s, i) => (
+              <div key={i} style={{ flex: 1, background: COLORS.bg, borderRadius: 8, padding: "10px 14px", textAlign: "center" }}>
+                <div style={{ fontSize: 20, fontWeight: 800, fontFamily: FONT, color: s.color }}>{s.value}</div>
+                <div style={{ fontSize: 10, color: COLORS.textMuted, fontFamily: FONT, textTransform: "uppercase" }}>{s.label}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
       {/* Strategy Header */}
       <Card glow>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
