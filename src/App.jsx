@@ -26,7 +26,7 @@ const FONT = `'JetBrains Mono', 'Fira Code', 'SF Mono', monospace`;
 const FONT_SANS = `'DM Sans', 'Segoe UI', sans-serif`;
 
 // ── Backend API ──
-const API_BASE = "https://seo-agent-backend-euqu.onrender.com";
+const API_BASE = "https://seo-agent-backend-1.onrender.com";
 
 // ── Site Data ──
 const MOCK_SITES = [
