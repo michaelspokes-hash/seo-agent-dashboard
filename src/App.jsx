@@ -30,10 +30,10 @@ const API_BASE = "https://seo-agent-backend-1.onrender.com";
 
 // ── Site Data ──
 const MOCK_SITES = [
-  { id: 1, name: "hataadvising.com", url: "https://www.hataadvising.com", platform: "wordpress", status: "connected", pages: 38, score: 64 },
-  { id: 2, name: "greencleansaltlake.com", url: "https://www.greencleansaltlake.com", platform: "wordpress", status: "connected", pages: 22, score: 55 },
-  { id: 3, name: "builtcontractors.com", url: "https://www.builtcontractors.com", platform: "wordpress", status: "connected", pages: 47, score: 68 },
-  { id: 4, name: "edgecarpetrepair.com", url: "https://www.edgecarpetrepair.com", platform: "wordpress", status: "connected", pages: 18, score: 59 },
+  { id: 1, name: "hataadvising.com", url: "https://www.hataadvising.com", gscUrl: "sc-domain:hataadvising.com", platform: "wordpress", status: "connected", pages: 38, score: 64 },
+  { id: 2, name: "greencleansaltlake.com", url: "https://www.greencleansaltlake.com", gscUrl: "sc-domain:greencleansaltlake.com", platform: "wordpress", status: "connected", pages: 22, score: 55 },
+  { id: 3, name: "builtcontractors.com", url: "https://www.builtcontractors.com", gscUrl: "sc-domain:builtcontractors.com", platform: "wordpress", status: "connected", pages: 47, score: 68 },
+  { id: 4, name: "edgecarpetrepair.com", url: "https://www.edgecarpetrepair.com", gscUrl: "sc-domain:edgecarpetrepair.com", platform: "wordpress", status: "connected", pages: 18, score: 59 },
 ];
 
 const MOCK_AUDIT_ITEMS = [
@@ -385,7 +385,7 @@ export default function SEOAgent() {
     if (!gscConnected || !site) return;
     setGscLoading(true);
     setGscError(null);
-    const encodedUrl = encodeURIComponent(site.url + "/");
+    const encodedUrl = encodeURIComponent(site.gscUrl);
     try {
       const [kwRes, summaryRes, pagesRes] = await Promise.all([
         fetch(`${API_BASE}/api/keywords/${encodedUrl}?limit=100`).then(r => r.json()),
@@ -409,7 +409,7 @@ export default function SEOAgent() {
   const triggerGscSync = async () => {
     if (!gscConnected || !site) return;
     setGscSyncing(true);
-    const encodedUrl = encodeURIComponent(site.url + "/");
+    const encodedUrl = encodeURIComponent(site.gscUrl);
     try {
       await fetch(`${API_BASE}/api/sync/${encodedUrl}`, { method: "POST" });
       await fetchGscData();
@@ -425,7 +425,7 @@ export default function SEOAgent() {
   const displayKeywordsForSite = liveKeywords
     ? gscKeywords.map(kw => ({
         keyword: kw.keyword,
-        page: kw.page ? new URL(kw.page).pathname : "/",
+        page: kw.page ? (kw.page.startsWith("http") ? new URL(kw.page).pathname : kw.page) : "/",
         position: Math.round(kw.position),
         change: kw.change ? Math.round(kw.change * 10) / 10 : 0,
         clicks: kw.clicks,
